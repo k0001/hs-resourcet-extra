@@ -1,0 +1,6 @@
+optimization: 2
+documentation: True
+benchmarks: True
+tests: True
+packages:
+  resourcet-extra/

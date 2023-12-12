@@ -22,14 +22,7 @@ common basic
     base == 4.*,
   default-extensions:
     BlockArguments
-    DeriveAnyClass
-    DerivingVia
-    DerivingStrategies
-    DuplicateRecordFields
     LambdaCase
-    OverloadedRecordDot
-    OverloadedStrings
-    RecordWildCards
 
 library
   import: basic
