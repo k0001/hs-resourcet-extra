@@ -2,7 +2,7 @@
 }:
 mkDerivation {
   pname = "resourcet-extra";
-  version = "0.0.1";
+  version = "0.0.2";
   src = ./.;
   libraryHaskellDepends = [
     base containers resourcet safe-exceptions

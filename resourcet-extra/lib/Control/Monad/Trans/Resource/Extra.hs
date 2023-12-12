@@ -9,6 +9,7 @@ module Control.Monad.Trans.Resource.Extra
    , registerType
 
     -- * MonadMask
+   , runResourceT
    , withAcquire
    , withAcquireRelease
 
@@ -26,6 +27,7 @@ import Control.Concurrent.MVar
 import Control.Exception.Safe qualified as Ex
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Resource qualified as R
 import Control.Monad.Trans.Resource.Internal qualified as R
 import Data.Acquire.Internal qualified as A
 import Data.IORef
@@ -51,6 +53,18 @@ acquireReleaseSelf (A.Acquire f) = A.Acquire \restore -> do
    pure $ A.Allocated (g rel1) rel1
 
 --------------------------------------------------------------------------------
+
+-- | Like 'R.runResourceT', but requires only 'Ex.MonadMask'.
+runResourceT :: (Ex.MonadMask m, MonadIO m) => R.ResourceT m a -> m a
+runResourceT (R.ResourceT r) = do
+   istate <- liftIO R.createInternalState
+   Ex.mask \restoreM -> do
+      a <-
+         restoreM (r istate) `Ex.catchAsync` \e -> liftIO do
+            R.stateCleanupChecked (Just e) istate
+            Ex.throwM e
+      liftIO $ R.stateCleanupChecked Nothing istate
+      pure a
 
 -- | Like 'withAcquireRelease', but doesn't take the extra release function.
 withAcquire :: (Ex.MonadMask m, MonadIO m) => A.Acquire a -> (a -> m b) -> m b
