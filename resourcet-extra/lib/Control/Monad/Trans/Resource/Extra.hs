@@ -18,15 +18,20 @@ module Control.Monad.Trans.Resource.Extra
    , getRestoreIO
    , withRestoreIO
 
+    -- * Async
+   , asyncRestore
+
     -- * IO
    , once
    , onceK
    ) where
 
+import Control.Concurrent.Async qualified as Async
 import Control.Concurrent.MVar
 import Control.Exception.Safe qualified as Ex
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.IO.Unlift qualified as U
 import Control.Monad.Trans.Resource qualified as R
 import Control.Monad.Trans.Resource.Internal qualified as R
 import Data.Acquire.Internal qualified as A
@@ -139,6 +144,38 @@ getRestoreIO =
 withRestoreIO
    :: (Ex.MonadMask m, MonadIO m) => ((forall x. IO x -> IO x) -> m a) -> m a
 withRestoreIO f = getRestoreIO >>= \(Restore g) -> f g
+
+--------------------------------------------------------------------------------
+
+-- | Like 'R.resourceFork', but uses 'Async.Async' to communicate with the
+-- background thread.
+--
+-- The 'Async.Async' is initially 'Ex.mask'ed. A 'Restore'-like function is
+-- provided to restore to the call-site masking state.
+--
+-- As a convenience, the 'Async.Async' may optionally be safelly 'Async.link'ed
+-- by this function, too.
+asyncRestore
+   :: (U.MonadUnliftIO m)
+   => Bool
+   -- ^ Whether to 'Async.link' the 'Async.Async'.
+   -> ((forall x. IO x -> IO x) -> R.ResourceT m a)
+   -- ^ You may use 'U.liftIOOp' on this 'Restore'-like function.
+   -> R.ResourceT m (R.ReleaseKey, Async.Async a)
+asyncRestore link k =
+   R.ResourceT \r -> U.withRunInIO \m2io -> Ex.mask \restoreIO -> do
+      let R.ResourceT !f = k restoreIO
+      mvStart <- newEmptyMVar
+      R.stateAlloc r
+      aa <- Async.async do
+         Ex.withException
+            (takeMVar mvStart >> m2io (f r))
+            (\e -> R.stateCleanup (A.ReleaseExceptionWith e) r)
+            <* R.stateCleanup A.ReleaseNormal r
+      when link $ Async.link aa
+      key <- R.register' r $ Async.uninterruptibleCancel aa
+      putMVar mvStart ()
+      pure (key, aa)
 
 --------------------------------------------------------------------------------
 

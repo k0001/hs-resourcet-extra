@@ -29,7 +29,9 @@ library
   hs-source-dirs: lib
   exposed-modules: Control.Monad.Trans.Resource.Extra
   build-depends:
+    async,
     resourcet,
     containers,
     resourcet,
     safe-exceptions,
+    unliftio-core,

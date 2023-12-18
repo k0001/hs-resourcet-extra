@@ -1,11 +1,12 @@
-{ mkDerivation, base, containers, lib, resourcet, safe-exceptions
+{ mkDerivation, async, base, containers, lib, resourcet
+, safe-exceptions, unliftio-core
 }:
 mkDerivation {
   pname = "resourcet-extra";
   version = "0.0.2";
   src = ./.;
   libraryHaskellDepends = [
-    base containers resourcet safe-exceptions
+    async base containers resourcet safe-exceptions unliftio-core
   ];
   homepage = "https://github.com/k0001/hs-resourcet-extra";
   description = "ResourceT extras";
