@@ -40,23 +40,23 @@ import Data.Acquire.Internal qualified as A
 import Data.IORef
 import Data.IntMap.Strict qualified as IntMap
 import Data.Kind
-import System.IO.Unsafe
 
 --------------------------------------------------------------------------------
 
 -- | Like 'A.mkAcquire', but the release function will be run at most once.
 mkAcquire1 :: IO a -> (a -> IO ()) -> A.Acquire a
-mkAcquire1 m f = A.mkAcquire m (onceK f)
+mkAcquire1 m f = fst <$> A.mkAcquire ((,) <$> m <*> onceK f) \(a, g) -> g a
 
 -- | Like 'A.mkAcquireType', but the release function will be run at most once.
 mkAcquireType1 :: IO a -> (a -> A.ReleaseType -> IO ()) -> A.Acquire a
-mkAcquireType1 m f = A.mkAcquireType m (curry (onceK (uncurry f)))
+mkAcquireType1 m f = fmap fst do
+   A.mkAcquireType ((,) <$> m <*> onceK (uncurry f)) \(a, g) t -> g (a, t)
 
 -- | Build an 'A.Acquire' having access to its own release function.
 acquireReleaseSelf :: A.Acquire ((A.ReleaseType -> IO ()) -> a) -> A.Acquire a
 acquireReleaseSelf (A.Acquire f) = A.Acquire \restore -> do
    A.Allocated g rel0 <- f restore
-   let rel1 = onceK rel0
+   rel1 <- onceK rel0
    pure $ A.Allocated (g rel1) rel1
 
 --------------------------------------------------------------------------------
@@ -97,7 +97,7 @@ withAcquireRelease (A.Acquire f) g = do
    Ex.mask \restoreM -> do
       A.Allocated x free <- liftIO $ f restoreIO
       -- Wrapper so that we don't perform `free` again if `g` already did.
-      let free1 = onceK free
+      free1 <- onceK free
       b <- Ex.withException (restoreM (g free1 x)) \e ->
          liftIO $ free1 $ A.ReleaseExceptionWith e
       liftIO $ free1 A.ReleaseNormal
@@ -168,31 +168,28 @@ asyncRestore
 asyncRestore link k =
    R.ResourceT \r -> U.withRunInIO \m2io -> Ex.mask \restoreIO -> do
       let R.ResourceT !f = k restoreIO
-      mvStart <- newEmptyMVar
       R.stateAlloc r
       aa <- Async.async do
-         Ex.withException
-            (takeMVar mvStart >> m2io (f r))
-            (\e -> R.stateCleanup (A.ReleaseExceptionWith e) r)
-            <* R.stateCleanup A.ReleaseNormal r
+         a <- Ex.withException (m2io (f r)) \e ->
+            R.stateCleanup (A.ReleaseExceptionWith e) r
+         a <$ R.stateCleanup A.ReleaseNormal r
       when link $ Async.link aa
       key <- R.register' r $ Async.uninterruptibleCancel aa
-      putMVar mvStart ()
       pure (key, aa)
 
 --------------------------------------------------------------------------------
 
--- | @'once' ma@ wraps @ma@ so that @ma@ is executed at most once. Further
--- executions of the same @'once' ma@ are a no-op. It's safe to use the wrapper
--- concurrently; only one thread will get to execute the actual @ma@ at most.
-once :: (MonadIO m, Ex.MonadMask m) => m () -> m ()
-once ma = onceK (const ma) ()
+-- | @'once' ma@ creates a wrapper for @ma@ so that @ma@ is executed at most
+-- once. Further executions of the same wrapped @ma@ are a no-op. It's safe to
+-- attempt to use the wrapper concurrently; only one thread will get to execute
+-- the actual @ma@ at most.
+once :: (MonadIO m, MonadIO n, Ex.MonadMask n) => n () -> m (n ())
+once = fmap ($ ()) . onceK . const
 
 -- | Kleisli version of 'once'.
-onceK :: (MonadIO m, Ex.MonadMask m) => (a -> m ()) -> (a -> m ())
-{-# NOINLINE onceK #-}
-onceK kma = unsafePerformIO do
-   done <- newMVar False
+onceK :: (MonadIO m, MonadIO n, Ex.MonadMask n) => (a -> n ()) -> m (a -> n ())
+onceK kma = do
+   done <- liftIO $ newMVar False
    pure \a ->
       Ex.bracket
          (liftIO $ takeMVar done)
