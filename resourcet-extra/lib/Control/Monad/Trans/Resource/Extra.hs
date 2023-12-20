@@ -5,8 +5,10 @@ module Control.Monad.Trans.Resource.Extra
    , acquireReleaseSelf
 
     -- * MonadResource
-   , acquireReleaseKey
    , registerType
+   , releaseType
+   , unprotectType
+   , acquireReleaseKey
 
     -- * MonadMask
    , runResourceT
@@ -108,24 +110,25 @@ registerType
    :: (R.MonadResource m) => (A.ReleaseType -> IO ()) -> m R.ReleaseKey
 registerType = R.liftResourceT . R.ResourceT . flip R.registerType
 
--- | 'acquireReleaseKey' will 'R.unprotect' the 'R.ReleaseKey',
+-- | Like 'R.release', but allows specifying the 'A.ReleaseType' too.
+releaseType :: (MonadIO m) => R.ReleaseKey -> A.ReleaseType -> m ()
+releaseType rk rt = liftIO $ maybe mempty ($ rt) =<< unprotectType rk
+
+-- Like 'R.unprotect', but allows specifying the 'A.ReleaseType' too.
+unprotectType
+   :: (MonadIO m) => R.ReleaseKey -> m (Maybe (A.ReleaseType -> IO ()))
+unprotectType (R.ReleaseKey istate key) = liftIO do
+   atomicModifyIORef' istate \case
+      R.ReleaseMap next rf im
+         | Just g <- IntMap.lookup key im ->
+            (R.ReleaseMap next rf (IntMap.delete key im), Just g)
+      rm -> (rm, Nothing)
+
+-- | 'acquireReleaseKey' will 'unprotectType' the 'R.ReleaseKey',
 -- and use 'A.Acquire' to manage the release action instead.
 acquireReleaseKey :: R.ReleaseKey -> A.Acquire ()
-acquireReleaseKey (R.ReleaseKey istate key) =
-   void $ A.mkAcquireType acq rel
-  where
-   acq :: IO (Maybe (A.ReleaseType -> IO ()))
-   acq =
-      -- The following code does pretty much the same as 'R.unprotect',
-      -- which we can't use directly because its result doesn't allow us
-      -- to specify the 'A.ReleaseType' during release.
-      atomicModifyIORef istate \case
-         R.ReleaseMap next rf im
-            | Just g <- IntMap.lookup key im ->
-               (R.ReleaseMap next rf (IntMap.delete key im), Just g)
-         rm -> (rm, Nothing)
-   rel :: Maybe (A.ReleaseType -> IO ()) -> A.ReleaseType -> IO ()
-   rel = maybe mempty id
+acquireReleaseKey rk =
+   void $ A.mkAcquireType (unprotectType rk) (maybe mempty id)
 
 --------------------------------------------------------------------------------
 
@@ -153,7 +156,7 @@ withRestoreIO f = getRestoreIO >>= \(Restore g) -> f g
 -- The 'Async.Async' is initially 'Ex.mask'ed. A 'Restore'-like function is
 -- provided to restore to the call-site masking state.
 --
--- As a convenience, the 'Async.Async' may optionally be safelly 'Async.link'ed
+-- As a convenience, the 'Async.Async' may optionally be safely 'Async.link'ed
 -- by this function, too.
 asyncRestore
    :: (U.MonadUnliftIO m)
