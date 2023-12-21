@@ -45,12 +45,15 @@ import Data.Kind
 
 -- | Like 'A.mkAcquire', but the release function will be run at most once.
 mkAcquire1 :: IO a -> (a -> IO ()) -> A.Acquire a
-mkAcquire1 m f = fst <$> A.mkAcquire ((,) <$> m <*> onceK f) \(a, g) -> g a
+mkAcquire1 m f = do
+   g <- onceK f
+   A.mkAcquire m g
 
 -- | Like 'A.mkAcquireType', but the release function will be run at most once.
 mkAcquireType1 :: IO a -> (a -> A.ReleaseType -> IO ()) -> A.Acquire a
-mkAcquireType1 m f = fmap fst do
-   A.mkAcquireType ((,) <$> m <*> onceK (uncurry f)) \(a, g) t -> g (a, t)
+mkAcquireType1 m f = do
+   g <- onceK $ uncurry f
+   A.mkAcquireType m $ curry g
 
 -- | Build an 'A.Acquire' having access to its own release function.
 acquireReleaseSelf :: A.Acquire ((A.ReleaseType -> IO ()) -> a) -> A.Acquire a
