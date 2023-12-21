@@ -179,7 +179,7 @@ asyncRestore link k =
 
 --------------------------------------------------------------------------------
 
--- | @'once' ma@ creates a wrapper for @ma@ so that @ma@ is executed at most
+-- | @'once' ma@ creates a wrapper for @ma@ which will execute @ma@ at most
 -- once. Further executions of the same wrapped @ma@ are a no-op. It's safe to
 -- attempt to use the wrapper concurrently; only one thread will get to execute
 -- the actual @ma@ at most.
