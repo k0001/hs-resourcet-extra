@@ -114,7 +114,7 @@ registerType = R.liftResourceT . R.ResourceT . flip R.registerType
 releaseType :: (MonadIO m) => R.ReleaseKey -> A.ReleaseType -> m ()
 releaseType rk rt = liftIO $ maybe mempty ($ rt) =<< unprotectType rk
 
--- Like 'R.unprotect', but allows specifying the 'A.ReleaseType' too.
+-- | Like 'R.unprotect', but allows specifying the 'A.ReleaseType' too.
 unprotectType
    :: (MonadIO m) => R.ReleaseKey -> m (Maybe (A.ReleaseType -> IO ()))
 unprotectType (R.ReleaseKey istate key) = liftIO do
