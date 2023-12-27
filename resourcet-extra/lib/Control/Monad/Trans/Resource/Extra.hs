@@ -1,6 +1,8 @@
 module Control.Monad.Trans.Resource.Extra
    ( -- * Acquire
-    mkAcquire1
+    acquire1
+   , acquireType1
+   , mkAcquire1
    , mkAcquireType1
    , acquireReleaseSelf
 
@@ -43,17 +45,29 @@ import Data.Kind
 
 --------------------------------------------------------------------------------
 
+-- | Like 'A.mkAcquire1', but the acquire function is provided the current
+-- 'Restore'-like function.
+acquire1 :: ((forall x. IO x -> IO x) -> IO a) -> (a -> IO ()) -> A.Acquire a
+acquire1 acq rel = acquireType1 acq \a _ -> rel a
+
+-- | Like 'A.mkAcquireType1', but the acquire function is provided the current
+-- 'Restore'-like function.
+acquireType1
+   :: ((forall x. IO x -> IO x) -> IO a)
+   -> (a -> A.ReleaseType -> IO ())
+   -> A.Acquire a
+acquireType1 acq rel = A.Acquire \res -> do
+   rel1 <- onceK $ uncurry rel
+   a <- acq res
+   pure $ A.Allocated a $ curry rel1 a
+
 -- | Like 'A.mkAcquire', but the release function will be run at most once.
 mkAcquire1 :: IO a -> (a -> IO ()) -> A.Acquire a
-mkAcquire1 m f = do
-   g <- onceK f
-   A.mkAcquire m g
+mkAcquire1 acq = acquire1 \_ -> acq
 
 -- | Like 'A.mkAcquireType', but the release function will be run at most once.
 mkAcquireType1 :: IO a -> (a -> A.ReleaseType -> IO ()) -> A.Acquire a
-mkAcquireType1 m f = do
-   g <- onceK $ uncurry f
-   A.mkAcquireType m $ curry g
+mkAcquireType1 acq = acquireType1 \_ -> acq
 
 -- | Build an 'A.Acquire' having access to its own release function.
 acquireReleaseSelf :: A.Acquire ((A.ReleaseType -> IO ()) -> a) -> A.Acquire a
