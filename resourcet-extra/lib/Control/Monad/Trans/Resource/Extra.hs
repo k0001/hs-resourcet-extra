@@ -5,6 +5,7 @@ module Control.Monad.Trans.Resource.Extra
    , mkAcquire1
    , mkAcquireType1
    , acquireReleaseSelf
+   , unAcquire
 
     -- * MonadResource
    , registerType
@@ -62,19 +63,35 @@ acquireType1 acq rel = A.Acquire \res -> do
    pure $ A.Allocated a $ curry rel1 a
 
 -- | Like 'A.mkAcquire', but the release function will be run at most once.
+-- Subsequent executions of the release function will be no-ops.
 mkAcquire1 :: IO a -> (a -> IO ()) -> A.Acquire a
 mkAcquire1 acq = acquire1 \_ -> acq
 
 -- | Like 'A.mkAcquireType', but the release function will be run at most once.
+-- Subsequent executions of the release function will be no-ops.
 mkAcquireType1 :: IO a -> (a -> A.ReleaseType -> IO ()) -> A.Acquire a
 mkAcquireType1 acq = acquireType1 \_ -> acq
 
 -- | Build an 'A.Acquire' having access to its own release function.
+--
+-- The release function will be run at most once. Subsequent executions of
+-- the release function will be no-ops.
 acquireReleaseSelf :: A.Acquire ((A.ReleaseType -> IO ()) -> a) -> A.Acquire a
 acquireReleaseSelf (A.Acquire f) = A.Acquire \restore -> do
    A.Allocated g rel0 <- f restore
    rel1 <- onceK rel0
    pure $ A.Allocated (g rel1) rel1
+
+-- | Removes the 'A.Acquire' and 'A.Allocated' wrappers.
+unAcquire
+   :: (MonadIO m)
+   => A.Acquire a
+   -> (forall x. IO x -> IO x)
+   -- ^ 'Restore'-like function.
+   -> m (a, A.ReleaseType -> IO ())
+unAcquire (A.Acquire f) restore = liftIO do
+   A.Allocated a rel <- f restore
+   pure (a, rel)
 
 --------------------------------------------------------------------------------
 
